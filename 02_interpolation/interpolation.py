@@ -4,48 +4,63 @@ from __future__ import annotations
 
 import argparse
 
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import CubicSpline
 
 
+def _validate_nodes(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    if x_arr.ndim != 1 or y_arr.ndim != 1 or len(x_arr) != len(y_arr):
+        raise ValueError("x and y must be 1D arrays of equal length.")
+    if len(x_arr) < 2:
+        raise ValueError("At least 2 distinct nodes are required for interpolation.")
+    if len(np.unique(x_arr)) != len(x_arr):
+        raise ValueError("Interpolation nodes x must be strictly distinct.")
+    return x_arr, y_arr
+
+
 def divided_differences(x: np.ndarray, f: np.ndarray) -> np.ndarray:
     """Build the Newton divided-difference table."""
-    n = len(x)
+    x_arr, f_arr = _validate_nodes(x, f)
+    n = len(x_arr)
     table = np.zeros((n, n), dtype=float)
-    table[:, 0] = f
+    table[:, 0] = f_arr
     for j in range(1, n):
         for i in range(n - j):
-            table[i, j] = (table[i + 1, j - 1] - table[i, j - 1]) / (x[i + j] - x[i])
+            table[i, j] = (table[i + 1, j - 1] - table[i, j - 1]) / (x_arr[i + j] - x_arr[i])
     return table
 
 
 def newton_eval(x_data: np.ndarray, dd_table: np.ndarray, x: float) -> float:
     """Evaluate the Newton interpolating polynomial at point x."""
+    x_arr = np.asarray(x_data, dtype=float)
     result = float(dd_table[0, 0])
     term = 1.0
-    for k in range(1, len(x_data)):
-        term *= x - x_data[k - 1]
+    for k in range(1, len(x_arr)):
+        term *= x - x_arr[k - 1]
         result += dd_table[0, k] * term
     return float(result)
 
 
 def lagrange_eval(x_data: np.ndarray, y_data: np.ndarray, x: float) -> float:
     """Evaluate the Lagrange interpolating polynomial at point x."""
-    n = len(x_data)
+    x_arr, y_arr = _validate_nodes(x_data, y_data)
+    n = len(x_arr)
     total = 0.0
     for i in range(n):
         basis = 1.0
         for j in range(n):
             if j != i:
-                basis *= (x - x_data[j]) / (x_data[i] - x_data[j])
-        total += y_data[i] * basis
+                basis *= (x - x_arr[j]) / (x_arr[i] - x_arr[j])
+        total += y_arr[i] * basis
     return float(total)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare Newton, Lagrange, and Cubic Spline interpolation.")
     parser.add_argument("--no-plot", action="store_true", help="Run calculations without opening plot windows.")
+    parser.add_argument("--save-plot", type=str, default=None, help="Save plot to a PNG/JPG path.")
     args = parser.parse_args()
 
     t = np.array([1990, 1995, 2000, 2005, 2010, 2015], dtype=float)
@@ -73,7 +88,6 @@ def main() -> None:
         print(f"  Lagrange = {lagrange_eval(t, y, target):.2f}")
         print(f"  Spline   = {float(spline(target)):.2f}")
 
-    # Scaling study: shift years to offset from 1990 and scale population to millions
     t_scaled = t - 1990.0
     y_scaled = y / 1_000_000.0
     dd_scaled = divided_differences(t_scaled, y_scaled)
@@ -88,19 +102,29 @@ def main() -> None:
             f"Spline={float(spline_scaled(u)):.4f}M"
         )
 
-    if not args.no_plot:
-        plt.figure(figsize=(9, 5))
-        plt.scatter(t, y, color="black", zorder=5, label="Data points")
-        plt.plot(years, newton_vals, label="Newton")
-        plt.plot(years, lagrange_vals, linestyle="--", label="Lagrange")
-        plt.plot(years, spline_vals, label="Cubic Spline")
+    if not args.no_plot or args.save_plot:
+        import matplotlib
+
+        if args.save_plot and args.no_plot:
+            matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(9, 5), dpi=140)
+        plt.scatter(t, y / 1e6, color="#0F172A", s=54, zorder=5, label="Census nodes")
+        plt.plot(years, newton_vals / 1e6, linewidth=2.2, color="#2563EB", label="Newton Divided Diff.")
+        plt.plot(years, lagrange_vals / 1e6, linestyle="--", linewidth=2.0, color="#F97316", label="Lagrange")
+        plt.plot(years, spline_vals / 1e6, linewidth=2.0, color="#10B981", label="Cubic Spline")
         plt.xlabel("Year")
-        plt.ylabel("Population")
-        plt.title("Interpolation Comparison (Newton, Lagrange, Cubic Spline)")
-        plt.legend()
-        plt.grid(True)
+        plt.ylabel("Population (Millions)")
+        plt.title("Interpolation Comparison — Newton, Lagrange & Cubic Spline")
+        plt.legend(frameon=True)
+        plt.grid(True, alpha=0.35)
         plt.tight_layout()
-        plt.show()
+        if args.save_plot:
+            plt.savefig(args.save_plot, dpi=160)
+        if not args.no_plot:
+            plt.show()
+        plt.close()
 
 
 if __name__ == "__main__":

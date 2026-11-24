@@ -7,9 +7,12 @@ import numpy as np
 
 def newton_diff_table(y: np.ndarray) -> np.ndarray:
     """Construct the forward finite-difference table for equally spaced samples."""
-    n = len(y)
+    y_arr = np.asarray(y, dtype=float)
+    if y_arr.ndim != 1 or len(y_arr) < 2:
+        raise ValueError("y must be a 1D array with at least 2 samples.")
+    n = len(y_arr)
     table = np.zeros((n, n), dtype=float)
-    table[:, 0] = y
+    table[:, 0] = y_arr
     for j in range(1, n):
         for i in range(n - j):
             table[i, j] = table[i + 1, j - 1] - table[i, j - 1]
@@ -18,44 +21,63 @@ def newton_diff_table(y: np.ndarray) -> np.ndarray:
 
 def lagrange_derivative_at_point(x_nodes: np.ndarray, y_nodes: np.ndarray, xi: float) -> float:
     """Estimate f'(xi) by differentiating the Lagrange interpolating polynomial."""
-    n = len(x_nodes)
+    x_arr = np.asarray(x_nodes, dtype=float)
+    y_arr = np.asarray(y_nodes, dtype=float)
+    if len(x_arr) != len(y_arr) or len(x_arr) < 2:
+        raise ValueError("x_nodes and y_nodes must have equal length >= 2.")
+    if len(np.unique(x_arr)) != len(x_arr):
+        raise ValueError("x_nodes must be strictly distinct.")
+
+    n = len(x_arr)
     deriv = 0.0
     for i in range(n):
         li_prime = 0.0
         for j in range(n):
             if i == j:
                 continue
-            prod_term = 1.0 / (x_nodes[i] - x_nodes[j])
+            prod_term = 1.0 / (x_arr[i] - x_arr[j])
             for k in range(n):
                 if k == i or k == j:
                     continue
-                prod_term *= (xi - x_nodes[k]) / (x_nodes[i] - x_nodes[k])
+                prod_term *= (xi - x_arr[k]) / (x_arr[i] - x_arr[k])
             li_prime += prod_term
-        deriv += y_nodes[i] * li_prime
+        deriv += y_arr[i] * li_prime
     return float(deriv)
+
+
+def _validate_quadrature(y: np.ndarray, h: float) -> np.ndarray:
+    y_arr = np.asarray(y, dtype=float)
+    if y_arr.ndim != 1 or len(y_arr) < 2:
+        raise ValueError("Integration requires at least 2 sample points.")
+    if h <= 0:
+        raise ValueError("Step size h must be strictly positive.")
+    return y_arr
 
 
 def trapezoidal_rule(y: np.ndarray, h: float) -> float:
     """Composite Trapezoidal Rule: (h / 2) * (y0 + 2 * sum(y_i) + y_n)."""
-    return float((h / 2.0) * (y[0] + 2.0 * np.sum(y[1:-1]) + y[-1]))
+    y_arr = _validate_quadrature(y, h)
+    return float((h / 2.0) * (y_arr[0] + 2.0 * np.sum(y_arr[1:-1]) + y_arr[-1]))
 
 
 def simpsons_13(y: np.ndarray, h: float) -> float:
-    """Composite Simpson's 1/3 Rule (requires an even number of intervals)."""
-    n = len(y) - 1
-    if n % 2 != 0:
-        raise ValueError("Simpson's 1/3 rule requires an even number of subintervals.")
-    return float((h / 3.0) * (y[0] + 4.0 * np.sum(y[1:n:2]) + 2.0 * np.sum(y[2:n:2]) + y[-1]))
+    """Composite Simpson's 1/3 Rule (requires a positive even number of intervals)."""
+    y_arr = _validate_quadrature(y, h)
+    n = len(y_arr) - 1
+    if n < 2 or n % 2 != 0:
+        raise ValueError("Simpson's 1/3 rule requires a positive even number of subintervals.")
+    return float((h / 3.0) * (y_arr[0] + 4.0 * np.sum(y_arr[1:n:2]) + 2.0 * np.sum(y_arr[2:n:2]) + y_arr[-1]))
 
 
 def simpsons_38(y: np.ndarray, h: float) -> float:
-    """Composite Simpson's 3/8 Rule (requires subinterval count divisible by 3)."""
-    n = len(y) - 1
-    if n % 3 != 0:
-        raise ValueError("Simpson's 3/8 rule requires the number of subintervals to be divisible by 3.")
-    total = float(y[0] + y[-1])
+    """Composite Simpson's 3/8 Rule (requires a positive subinterval count divisible by 3)."""
+    y_arr = _validate_quadrature(y, h)
+    n = len(y_arr) - 1
+    if n < 3 or n % 3 != 0:
+        raise ValueError("Simpson's 3/8 rule requires a positive subinterval count divisible by 3.")
+    total = float(y_arr[0] + y_arr[-1])
     for i in range(1, n):
-        total += (2.0 if i % 3 == 0 else 3.0) * float(y[i])
+        total += (2.0 if i % 3 == 0 else 3.0) * float(y_arr[i])
     return float((3.0 * h / 8.0) * total)
 
 
@@ -65,13 +87,11 @@ def main() -> None:
     h = 2.0
     diff_table = newton_diff_table(x_a)
 
-    # Forward differences at t = 2s (index 1)
     dy_2, d2y_2, d3y_2 = diff_table[1, 1], diff_table[1, 2], diff_table[1, 3]
     v_2 = (1.0 / h) * (dy_2 - 0.5 * d2y_2 + (1.0 / 3.0) * d3y_2)
     a_2 = (1.0 / h**2) * (d2y_2 - d3y_2)
     print(f"At t = 2s  (Forward):  v = {v_2:.4f} m/s, a = {a_2:.4f} m/s^2")
 
-    # Backward differences at t = 14s (index 7)
     dy_14, d2y_14, d3y_14 = diff_table[6, 1], diff_table[5, 2], diff_table[4, 3]
     v_14 = (1.0 / h) * (dy_14 + 0.5 * d2y_14 + (1.0 / 3.0) * d3y_14)
     a_14 = (1.0 / h**2) * (d2y_14 + d3y_14)
